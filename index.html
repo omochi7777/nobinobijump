@@ -334,23 +334,61 @@
     // Check if mobile
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
-    // Milestones (Extended to 10000m!)
+    // Milestones - More frequent messages for more fun!
     const milestones = [
-      { height: 30, msg: "いい調子！", shown: false },
-      { height: 100, msg: "すごい！", shown: false },
-      { height: 200, msg: "雲の上だ！", shown: false },
-      { height: 300, msg: "宇宙へ！", shown: false },
-      { height: 500, msg: "大気圏突破！", shown: false },
-      { height: 800, msg: "星になった！", shown: false },
-      { height: 1000, msg: "1000m到達！", shown: false },
-      { height: 1500, msg: "銀河の旅人", shown: false },
-      { height: 2000, msg: "どこまで行くの？", shown: false },
-      { height: 3000, msg: "前人未到！", shown: false },
-      { height: 4000, msg: "神の領域！", shown: false },
+      // Early game - Frequent encouragement
+      { height: 10, msg: "いいね！", shown: false },
+      { height: 20, msg: "その調子！", shown: false },
+      { height: 30, msg: "のびのび〜", shown: false },
+      { height: 50, msg: "すごい！", shown: false },
+      { height: 75, msg: "絶好調！", shown: false },
+      { height: 100, msg: "🎉100m突破！", shown: false },
+
+      // Mid game - Building excitement
+      { height: 125, msg: "まだまだ！", shown: false },
+      { height: 150, msg: "雲に近づいてきた", shown: false },
+      { height: 175, msg: "いい感じ♪", shown: false },
+      { height: 200, msg: "☁️雲の上だ！", shown: false },
+      { height: 250, msg: "空が広い！", shown: false },
+      { height: 300, msg: "🚀宇宙へ！", shown: false },
+      { height: 350, msg: "地球が小さく...", shown: false },
+      { height: 400, msg: "星が見えてきた", shown: false },
+      { height: 500, msg: "🌟大気圏突破！", shown: false },
+
+      // High altitude - Achievements
+      { height: 600, msg: "どんどん行こう！", shown: false },
+      { height: 700, msg: "止まらない！", shown: false },
+      { height: 800, msg: "⭐星になった！", shown: false },
+      { height: 900, msg: "もうすぐ1000m！", shown: false },
+      { height: 1000, msg: "🏆1000m到達！", shown: false },
+
+      // Expert zone
+      { height: 1250, msg: "銀河の入り口", shown: false },
+      { height: 1500, msg: "🌌銀河の旅人", shown: false },
+      { height: 1750, msg: "すごすぎる！", shown: false },
+      { height: 2000, msg: "🛸どこまで行くの？", shown: false },
+      { height: 2500, msg: "異次元の世界...", shown: false },
+      { height: 3000, msg: "🔥前人未到！", shown: false },
+      { height: 3500, msg: "伝説の始まり", shown: false },
+      { height: 4000, msg: "👼神の領域！", shown: false },
+      { height: 4500, msg: "限界を超えた！", shown: false },
       { height: 5000, msg: "✨真の伝説達成✨", shown: false },
-      { height: 6000, msg: "限界突破！！", shown: false },
-      { height: 8000, msg: "未知の次元へ...", shown: false },
-      { height: 10000, msg: "👑宇宙の覇者👑", shown: false, isLegend: true }
+
+      // Ultra zone
+      { height: 6000, msg: "🌈限界突破！！", shown: false },
+      { height: 7000, msg: "次元を超越...", shown: false },
+      { height: 8000, msg: "🌀未知の次元へ", shown: false },
+      { height: 9000, msg: "もうすぐ頂点！", shown: false },
+      { height: 10000, msg: "👑宇宙の覇者👑", shown: false, isLegend: true },
+
+      // Beyond 10000m - Ultimate achievements
+      { height: 12000, msg: "🌟時空を超えた存在", shown: false, isLegend: true },
+      { height: 15000, msg: "💫創造主レベル", shown: false, isLegend: true },
+      { height: 20000, msg: "🔱神をも超えた！", shown: false, isLegend: true },
+      { height: 25000, msg: "✨∞無限の彼方へ∞✨", shown: false, isLegend: true },
+      { height: 30000, msg: "🏅究極の到達点", shown: false, isLegend: true },
+      { height: 50000, msg: "👑👑全宇宙の支配者👑👑", shown: false, isLegend: true },
+      { height: 100000, msg: "🎊おめでとう！完全制覇🎊", shown: false, isLegend: true }
     ];
 
     const colors = {
