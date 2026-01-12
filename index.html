@@ -372,6 +372,14 @@
     let particles = [];
     let clouds = [];
 
+    // ============ SHARED GEOMETRIES & MATERIALS (Performance optimization) ============
+    // Pre-created geometries and materials for reuse to reduce GC pressure
+    const sharedGeometries = {};
+    const sharedMaterials = {};
+
+    // Default scale vector for lerp (avoid creating new Vector3 each frame)
+    const DEFAULT_SCALE = new THREE.Vector3(1, 1, 1);
+
     let gameActive = false;
     let gamePaused = false;
     let score = 0;
@@ -388,9 +396,6 @@
     // Audio Context for sound effects
     let audioCtx = null;
 
-    // Device orientation
-    let useGyro = false;
-    let gyroX = 0;
 
     // Check if mobile
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -554,40 +559,20 @@
       }
     }
 
-    // ============ GYROSCOPE SETUP ============
-    function setupGyroscope() {
-      if (typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function') {
-        // iOS 13+ requires permission
-        DeviceOrientationEvent.requestPermission()
-          .then(response => {
-            if (response === 'granted') {
-              enableGyro();
-            }
-          })
-          .catch(console.error);
-      } else if ('DeviceOrientationEvent' in window) {
-        enableGyro();
-      }
-    }
+    function initSharedResources() {
+      // Particle geometry and material (shared across all particles)
+      sharedGeometries.particle = new THREE.SphereGeometry(0.1, 4, 4);
+      sharedMaterials.particle = new THREE.MeshBasicMaterial({ color: 0xffffff });
 
-    function enableGyro() {
-      useGyro = true;
-      window.addEventListener('deviceorientation', handleOrientation);
-      document.getElementById('touch-hint').innerText = '📱 スマホを傾けて操作！';
-      setTimeout(() => {
-        document.getElementById('touch-hint').innerText = '';
-      }, 3000);
-    }
+      // Platform geometry and materials
+      sharedGeometries.platform = new THREE.CylinderGeometry(1.2, 1.2, 0.2, 16);
+      sharedGeometries.platformRing = new THREE.TorusGeometry(1.2, 0.05, 8, 24);
+      sharedMaterials.platform = new THREE.MeshLambertMaterial({ color: colors.leaf });
+      sharedMaterials.platformRing = new THREE.MeshBasicMaterial({ color: colors.leafDark });
 
-    function handleOrientation(event) {
-      if (!gameActive || gamePaused) return;
-
-      // gamma: left-right tilt (-90 to 90)
-      let tilt = event.gamma || 0;
-      tilt = Math.max(-30, Math.min(30, tilt)); // Clamp
-      gyroX = (tilt / 30) * 5.5; // Map to game coords
-      targetX = gyroX;
+      // Cloud geometry and material
+      sharedGeometries.cloud = new THREE.SphereGeometry(1, 16, 16);
+      sharedMaterials.cloud = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
     }
 
     function init() {
@@ -602,6 +587,9 @@
       scene = new THREE.Scene();
       scene.background = colors.skyStart.clone();
       scene.fog = new THREE.Fog(colors.skyStart.clone(), 10, 40);
+
+      // Initialize shared geometries and materials
+      initSharedResources();
 
       camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
       camera.position.set(0, 2, 12);
@@ -708,9 +696,10 @@
 
     function createClouds() {
       for (let i = 0; i < 20; i++) {
-        const geo = new THREE.SphereGeometry(Math.random() * 2 + 1, 16, 16);
-        const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
-        const cloud = new THREE.Mesh(geo, mat);
+        // Reuse shared geometry and material, use scale for size variation
+        const cloud = new THREE.Mesh(sharedGeometries.cloud, sharedMaterials.cloud);
+        const scale = Math.random() * 2 + 1;
+        cloud.scale.set(scale, scale, scale);
         cloud.position.set(
           (Math.random() - 0.5) * 40,
           (Math.random() - 0.5) * 40,
@@ -723,12 +712,11 @@
 
     function createPlatform(x, y) {
       const group = new THREE.Group();
-      const geo = new THREE.CylinderGeometry(1.2, 1.2, 0.2, 16);
-      const mat = new THREE.MeshLambertMaterial({ color: colors.leaf });
-      const mesh = new THREE.Mesh(geo, mat);
+      // Reuse shared geometry and material
+      const mesh = new THREE.Mesh(sharedGeometries.platform, sharedMaterials.platform);
       mesh.receiveShadow = true;
       group.add(mesh);
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(1.2, 0.05, 8, 24), new THREE.MeshBasicMaterial({ color: colors.leafDark }));
+      const ring = new THREE.Mesh(sharedGeometries.platformRing, sharedMaterials.platformRing);
       ring.rotation.x = Math.PI / 2;
       group.add(ring);
 
@@ -858,6 +846,8 @@
 
       milestones.forEach(m => m.shown = false);
       document.getElementById('message-area').innerHTML = '';
+      scene.fog.near = 10;
+      scene.fog.far = 40;
 
       platforms.push(createPlatform(0, -2));
       for (let i = 0; i < 10; i++) generateNextPlatform();
@@ -909,11 +899,11 @@
 
     function spawnParticles(pos) {
       for (let i = 0; i < 5; i++) {
-        const geo = new THREE.SphereGeometry(0.1, 4, 4);
-        const mat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-        const mesh = new THREE.Mesh(geo, mat);
+        // Reuse shared geometry and material
+        const mesh = new THREE.Mesh(sharedGeometries.particle, sharedMaterials.particle);
         mesh.position.copy(pos);
         mesh.position.y -= 0.5;
+        mesh.scale.set(1, 1, 1); // Reset scale for reused concept
         scene.add(mesh);
         particles.push({
           mesh: mesh,
@@ -945,20 +935,9 @@
       // Gradient to deep space - completes at 1000m, stays dark after
       const ratio = Math.min(Math.max(height / 1000, 0), 1);
 
-      // Calculate color using proper clamping
-      const r = colors.skyStart.r + (colors.skyEnd.r - colors.skyStart.r) * ratio;
-      const g = colors.skyStart.g + (colors.skyEnd.g - colors.skyStart.g) * ratio;
-      const b = colors.skyStart.b + (colors.skyEnd.b - colors.skyStart.b) * ratio;
-
-      // Clamp values to valid range [0, 1]
-      const newColor = new THREE.Color(
-        Math.max(0, Math.min(1, r)),
-        Math.max(0, Math.min(1, g)),
-        Math.max(0, Math.min(1, b))
-      );
-
-      scene.background = newColor;
-      scene.fog.color.copy(newColor);
+      // Use Color.lerp() for cleaner, more efficient color interpolation
+      scene.background.copy(colors.skyStart).lerp(colors.skyEnd, ratio);
+      scene.fog.color.copy(scene.background);
 
       // Adjust fog density for high altitude (make it less dense in space)
       if (height > 500) {
@@ -1008,7 +987,7 @@
           }
         }
 
-        taneGroup.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
+        taneGroup.scale.lerp(DEFAULT_SCALE, 0.1);
 
         if (taneGroup.position.y > cameraTargetY - 1) {
           cameraTargetY = taneGroup.position.y + 1;
@@ -1023,6 +1002,7 @@
         });
 
         if (platforms.length > 0 && platforms[0].y < camera.position.y - 10) {
+          // Remove platform from scene (no dispose needed - using shared geometry/material)
           scene.remove(platforms[0].mesh);
           platforms.shift();
           generateNextPlatform();
