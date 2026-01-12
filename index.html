@@ -640,6 +640,13 @@
         }
       });
 
+      // Auto-pause when tab becomes hidden (prevents player from falling when switching tabs)
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden && gameActive && !gamePaused) {
+          togglePause();
+        }
+      });
+
       // Pause button
       document.getElementById('pause-btn').addEventListener('click', togglePause);
       document.getElementById('resume-btn').addEventListener('click', togglePause);
