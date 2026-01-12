@@ -270,6 +270,62 @@
       font-size: 14px;
       pointer-events: none;
     }
+
+    /* Countdown overlay */
+    #countdown-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 15;
+      pointer-events: none;
+      backdrop-filter: blur(2px);
+    }
+
+    .countdown-number {
+      font-size: 150px;
+      font-weight: bold;
+      color: #fff;
+      text-shadow: 0 0 30px rgba(255, 255, 255, 0.8), 4px 4px 0 #5bc656;
+      animation: countdownPop 0.8s ease-out forwards;
+    }
+
+    .countdown-go {
+      font-size: 100px;
+      background: linear-gradient(135deg, #ff9999, #ffeb3b, #7bc656);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      text-shadow: none;
+      filter: drop-shadow(4px 4px 0 rgba(0, 0, 0, 0.3));
+    }
+
+    @keyframes countdownPop {
+      0% {
+        opacity: 0;
+        transform: scale(2);
+      }
+
+      20% {
+        opacity: 1;
+        transform: scale(1);
+      }
+
+      80% {
+        opacity: 1;
+        transform: scale(1);
+      }
+
+      100% {
+        opacity: 0;
+        transform: scale(0.5);
+      }
+    }
   </style>
   <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -295,6 +351,10 @@
     <h2>⏸ 一時停止</h2>
     <p>ちょっと休憩...</p>
     <button id="resume-btn">▶ つづける</button>
+  </div>
+
+  <div id="countdown-overlay" class="hidden">
+    <div id="countdown-text"></div>
   </div>
 
   <div id="menu-screen">
@@ -681,14 +741,101 @@
       initAudio();
 
       document.getElementById('menu-screen').classList.add('hidden');
-      document.getElementById('pause-btn').classList.remove('hidden');
       document.getElementById('touch-hint').innerText = '';
 
       resetGame();
-      gameActive = true;
-      gamePaused = false;
-      playerVelocityY = JUMP_FORCE;
-      playJumpSound();
+
+      // Start countdown
+      startCountdown();
+    }
+
+    function startCountdown() {
+      const overlay = document.getElementById('countdown-overlay');
+      const textEl = document.getElementById('countdown-text');
+
+      overlay.classList.remove('hidden');
+
+      const sequence = [
+        { text: '3', isGo: false },
+        { text: '2', isGo: false },
+        { text: '1', isGo: false },
+        { text: 'スタート！', isGo: true }
+      ];
+
+      let index = 0;
+
+      function showNext() {
+        if (index >= sequence.length) {
+          // Countdown finished, start the game!
+          overlay.classList.add('hidden');
+          document.getElementById('pause-btn').classList.remove('hidden');
+          gameActive = true;
+          gamePaused = false;
+          playerVelocityY = JUMP_FORCE;
+          playJumpSound();
+          return;
+        }
+
+        const item = sequence[index];
+        textEl.className = item.isGo ? 'countdown-number countdown-go' : 'countdown-number';
+        textEl.innerText = item.text;
+
+        // Play countdown sound
+        if (!item.isGo) {
+          playCountdownSound();
+        } else {
+          playStartSound();
+        }
+
+        index++;
+        setTimeout(showNext, 800);
+      }
+
+      showNext();
+    }
+
+    function playCountdownSound() {
+      if (!audioCtx) return;
+
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.type = 'sine';
+      osc.frequency.value = 440; // A4
+
+      gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+
+      osc.start(audioCtx.currentTime);
+      osc.stop(audioCtx.currentTime + 0.15);
+    }
+
+    function playStartSound() {
+      if (!audioCtx) return;
+
+      // Play a cheerful ascending chord
+      const notes = [523, 659, 784, 1047]; // C5, E5, G5, C6
+      notes.forEach((freq, i) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+
+        const startTime = audioCtx.currentTime + i * 0.05;
+        gain.gain.setValueAtTime(0, startTime);
+        gain.gain.linearRampToValueAtTime(0.15, startTime + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.4);
+
+        osc.start(startTime);
+        osc.stop(startTime + 0.4);
+      });
     }
 
     function resetGame() {
