@@ -13,6 +13,7 @@
       font-family: "M PLUS Rounded 1c", sans-serif;
       user-select: none;
       -webkit-user-select: none;
+      touch-action: none;
     }
 
     #canvas-container {
@@ -36,6 +37,7 @@
     #header-ui {
       display: flex;
       justify-content: space-between;
+      align-items: flex-start;
       padding: 20px;
       font-weight: bold;
       color: white;
@@ -46,10 +48,94 @@
       font-size: 28px;
     }
 
+    #right-ui {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 10px;
+    }
+
     #highscore-display {
       font-size: 20px;
       color: #ffd700;
       text-align: right;
+    }
+
+    #pause-btn {
+      pointer-events: auto;
+      background: rgba(255, 255, 255, 0.3);
+      border: 3px solid #fff;
+      color: white;
+      font-size: 24px;
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: bold;
+      text-shadow: 2px 2px 0 #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(4px);
+      transition: transform 0.1s, background 0.2s;
+    }
+
+    #pause-btn:hover {
+      background: rgba(255, 255, 255, 0.5);
+    }
+
+    #pause-btn:active {
+      transform: scale(0.9);
+    }
+
+    /* Pause Overlay */
+    #pause-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: white;
+      z-index: 5;
+      pointer-events: auto;
+      backdrop-filter: blur(6px);
+    }
+
+    #pause-overlay h2 {
+      font-size: 48px;
+      margin: 0 0 20px 0;
+      text-shadow: 3px 3px 0 #5bc656;
+    }
+
+    #pause-overlay p {
+      font-size: 18px;
+      color: #aaa;
+      margin-bottom: 30px;
+    }
+
+    #resume-btn {
+      background: #7bc656;
+      border: 4px solid #fff;
+      color: white;
+      font-size: 20px;
+      padding: 15px 40px;
+      border-radius: 50px;
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: bold;
+      box-shadow: 0 4px 0 rgba(0, 0, 0, 0.2);
+      transition: transform 0.1s;
+    }
+
+    #resume-btn:active {
+      transform: scale(0.95);
+      box-shadow: 0 2px 0 rgba(0, 0, 0, 0.2);
     }
 
     /* Message Overlay */
@@ -173,6 +259,17 @@
     .hidden {
       display: none !important;
     }
+
+    /* Mobile touch hint */
+    #touch-hint {
+      position: absolute;
+      bottom: 80px;
+      width: 100%;
+      text-align: center;
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 14px;
+      pointer-events: none;
+    }
   </style>
   <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -185,9 +282,19 @@
   <div id="ui-layer">
     <div id="header-ui">
       <div id="score-display">高さ: 0m</div>
-      <div id="highscore-display">BEST: 0m</div>
+      <div id="right-ui">
+        <div id="highscore-display">BEST: 0m</div>
+        <button id="pause-btn" class="hidden">⏸</button>
+      </div>
     </div>
     <div id="message-area"></div>
+    <div id="touch-hint"></div>
+  </div>
+
+  <div id="pause-overlay" class="hidden">
+    <h2>⏸ 一時停止</h2>
+    <p>ちょっと休憩...</p>
+    <button id="resume-btn">▶ つづける</button>
   </div>
 
   <div id="menu-screen">
@@ -205,6 +312,7 @@
     let clouds = [];
 
     let gameActive = false;
+    let gamePaused = false;
     let score = 0;
     let highScore = 0;
     let highestY = 0;
@@ -215,6 +323,16 @@
 
     let cameraTargetY = 2;
     let targetX = 0;
+
+    // Audio Context for sound effects
+    let audioCtx = null;
+
+    // Device orientation
+    let useGyro = false;
+    let gyroX = 0;
+
+    // Check if mobile
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
     // Milestones (Extended to 10000m!)
     const milestones = [
@@ -245,6 +363,133 @@
       skyStart: new THREE.Color(0x87CEEB),
       skyEnd: new THREE.Color(0x050510) // Dark space
     };
+
+    // ============ SOUND EFFECTS ============
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function playJumpSound() {
+      if (!audioCtx) return;
+
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      // "Poyon" bounce sound - pitch goes up then down
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.08);
+      osc.frequency.exponentialRampToValueAtTime(250, audioCtx.currentTime + 0.2);
+
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
+
+      osc.start(audioCtx.currentTime);
+      osc.stop(audioCtx.currentTime + 0.25);
+    }
+
+    function playGameOverSound() {
+      if (!audioCtx) return;
+
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.5);
+
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+
+      osc.start(audioCtx.currentTime);
+      osc.stop(audioCtx.currentTime + 0.5);
+    }
+
+    function playMilestoneSound() {
+      if (!audioCtx) return;
+
+      const notes = [523, 659, 784]; // C5, E5, G5
+      notes.forEach((freq, i) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+
+        const startTime = audioCtx.currentTime + i * 0.1;
+        gain.gain.setValueAtTime(0, startTime);
+        gain.gain.linearRampToValueAtTime(0.2, startTime + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.3);
+
+        osc.start(startTime);
+        osc.stop(startTime + 0.3);
+      });
+    }
+
+    // ============ PAUSE FUNCTIONALITY ============
+    function togglePause() {
+      if (!gameActive) return;
+
+      gamePaused = !gamePaused;
+
+      if (gamePaused) {
+        document.getElementById('pause-overlay').classList.remove('hidden');
+        document.getElementById('pause-btn').innerText = '▶';
+      } else {
+        document.getElementById('pause-overlay').classList.add('hidden');
+        document.getElementById('pause-btn').innerText = '⏸';
+      }
+    }
+
+    // ============ GYROSCOPE SETUP ============
+    function setupGyroscope() {
+      if (typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+        // iOS 13+ requires permission
+        DeviceOrientationEvent.requestPermission()
+          .then(response => {
+            if (response === 'granted') {
+              enableGyro();
+            }
+          })
+          .catch(console.error);
+      } else if ('DeviceOrientationEvent' in window) {
+        enableGyro();
+      }
+    }
+
+    function enableGyro() {
+      useGyro = true;
+      window.addEventListener('deviceorientation', handleOrientation);
+      document.getElementById('touch-hint').innerText = '📱 スマホを傾けて操作！';
+      setTimeout(() => {
+        document.getElementById('touch-hint').innerText = '';
+      }, 3000);
+    }
+
+    function handleOrientation(event) {
+      if (!gameActive || gamePaused) return;
+
+      // gamma: left-right tilt (-90 to 90)
+      let tilt = event.gamma || 0;
+      tilt = Math.max(-30, Math.min(30, tilt)); // Clamp
+      gyroX = (tilt / 30) * 5.5; // Map to game coords
+      targetX = gyroX;
+    }
 
     function init() {
       const savedScore = localStorage.getItem('taneJumpHighScore');
@@ -282,22 +527,42 @@
 
       window.addEventListener('resize', onWindowResize, false);
 
+      // Mouse control (PC)
       const updateTargetX = (clientX) => {
+        if (useGyro) return; // Skip if using gyro
         const normX = (clientX / window.innerWidth) * 2 - 1;
         targetX = normX * 5.5;
       };
 
       document.addEventListener('mousemove', e => {
-        if (gameActive) updateTargetX(e.clientX);
+        if (gameActive && !gamePaused) updateTargetX(e.clientX);
       });
+
+      // Touch control (Mobile fallback if no gyro)
       document.addEventListener('touchmove', e => {
-        if (gameActive) {
+        if (gameActive && !gamePaused && !useGyro) {
           e.preventDefault();
           updateTargetX(e.touches[0].clientX);
         }
       }, { passive: false });
 
+      // Keyboard pause (P key or Escape)
+      document.addEventListener('keydown', e => {
+        if ((e.key === 'p' || e.key === 'P' || e.key === 'Escape') && gameActive) {
+          togglePause();
+        }
+      });
+
+      // Pause button
+      document.getElementById('pause-btn').addEventListener('click', togglePause);
+      document.getElementById('resume-btn').addEventListener('click', togglePause);
+
       document.getElementById('start-btn').addEventListener('click', startGame);
+
+      // Mobile hint
+      if (isMobile) {
+        document.getElementById('touch-hint').innerText = '👆 タップでスタート';
+      }
 
       animate();
     }
@@ -374,10 +639,23 @@
     }
 
     function startGame() {
+      // Initialize audio on first user interaction
+      initAudio();
+
+      // Try to enable gyroscope on mobile
+      if (isMobile) {
+        setupGyroscope();
+      }
+
       document.getElementById('menu-screen').classList.add('hidden');
+      document.getElementById('pause-btn').classList.remove('hidden');
+      document.getElementById('touch-hint').innerText = '';
+
       resetGame();
       gameActive = true;
+      gamePaused = false;
       playerVelocityY = JUMP_FORCE;
+      playJumpSound();
     }
 
     function resetGame() {
@@ -421,6 +699,12 @@
 
     function gameOver() {
       gameActive = false;
+      gamePaused = false;
+
+      playGameOverSound();
+
+      document.getElementById('pause-btn').classList.add('hidden');
+      document.getElementById('pause-overlay').classList.add('hidden');
 
       if (score > highScore) {
         highScore = score;
@@ -462,6 +746,7 @@
         milestones.forEach(m => {
           if (!m.shown && score >= m.height) {
             showMessage(m.msg, m.isLegend);
+            playMilestoneSound();
             m.shown = true;
           }
         });
@@ -491,6 +776,12 @@
     function animate() {
       requestAnimationFrame(animate);
 
+      // Skip game logic if paused
+      if (gameActive && gamePaused) {
+        renderer.render(scene, camera);
+        return;
+      }
+
       if (gameActive) {
         taneGroup.position.x += (targetX - taneGroup.position.x) * 0.1;
         taneGroup.rotation.z = (taneGroup.position.x - targetX) * 0.2;
@@ -510,6 +801,7 @@
               Math.abs(p.y - taneGroup.position.y) < 0.5) {
 
               playerVelocityY = JUMP_FORCE;
+              playJumpSound(); // Play bounce sound!
               spawnParticles(taneGroup.position);
               taneGroup.scale.set(1.2, 0.8, 1.2);
               break;
