@@ -529,18 +529,18 @@
 
       // Mouse control (PC)
       const updateTargetX = (clientX) => {
-        if (useGyro) return; // Skip if using gyro
         const normX = (clientX / window.innerWidth) * 2 - 1;
-        targetX = normX * 5.5;
+        // Narrower range to keep player visible on screen
+        targetX = normX * 4;
       };
 
       document.addEventListener('mousemove', e => {
         if (gameActive && !gamePaused) updateTargetX(e.clientX);
       });
 
-      // Touch control (Mobile fallback if no gyro)
+      // Touch control (Mobile)
       document.addEventListener('touchmove', e => {
-        if (gameActive && !gamePaused && !useGyro) {
+        if (gameActive && !gamePaused) {
           e.preventDefault();
           updateTargetX(e.touches[0].clientX);
         }
@@ -642,11 +642,6 @@
       // Initialize audio on first user interaction
       initAudio();
 
-      // Try to enable gyroscope on mobile
-      if (isMobile) {
-        setupGyroscope();
-      }
-
       document.getElementById('menu-screen').classList.add('hidden');
       document.getElementById('pause-btn').classList.remove('hidden');
       document.getElementById('touch-hint').innerText = '';
@@ -684,7 +679,8 @@
     function generateNextPlatform() {
       const lastY = platforms.length > 0 ? platforms[platforms.length - 1].y : -2;
       const deltaY = 1.5 + Math.random() * 1.5;
-      let newX = (Math.random() - 0.5) * 7;
+      // Narrower range to keep platforms visible on screen
+      let newX = (Math.random() - 0.5) * 5;
       platforms.push(createPlatform(newX, lastY + deltaY));
     }
 
