@@ -777,8 +777,12 @@
         }
 
         const item = sequence[index];
-        textEl.className = item.isGo ? 'countdown-number countdown-go' : 'countdown-number';
+
+        // Reset animation by removing class, forcing reflow, then adding class back
+        textEl.className = '';
         textEl.innerText = item.text;
+        void textEl.offsetWidth; // Force reflow to restart animation
+        textEl.className = item.isGo ? 'countdown-number countdown-go' : 'countdown-number';
 
         // Play countdown sound
         if (!item.isGo) {
