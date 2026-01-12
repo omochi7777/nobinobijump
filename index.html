@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>たねののびのびジャンプDX</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #87CEEB;
+      font-family: "M PLUS Rounded 1c", sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    #canvas-container {
+      width: 100%;
+      height: 100vh;
+      display: block;
+    }
+
+    #ui-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    #header-ui {
+      display: flex;
+      justify-content: space-between;
+      padding: 20px;
+      font-weight: bold;
+      color: white;
+      text-shadow: 2px 2px 0 #000;
+    }
+
+    #score-display {
+      font-size: 28px;
+    }
+
+    #highscore-display {
+      font-size: 20px;
+      color: #ffd700;
+      text-align: right;
+    }
+
+    /* Message Overlay */
+    #message-area {
+      position: absolute;
+      top: 30%;
+      width: 100%;
+      text-align: center;
+      pointer-events: none;
+    }
+
+    .milestone-msg {
+      font-size: 48px;
+      font-weight: bold;
+      color: #ffeb3b;
+      text-shadow: 4px 4px 0 #ff5722, -2px -2px 0 #fff;
+      opacity: 0;
+      transform: scale(0.5);
+      animation: popIn 2.5s forwards;
+      display: inline-block;
+      white-space: nowrap;
+    }
+
+    /* 10000m Special Style */
+    .legend-msg {
+      font-size: 60px;
+      background: linear-gradient(to right, #e6b980 20%, #eacda3 40%, #d6ae7b 60%, #eacda3 80%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      text-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
+      animation: popIn 3s forwards, shine 2s linear infinite;
+    }
+
+    @keyframes popIn {
+      0% {
+        opacity: 0;
+        transform: scale(0.5) translateY(20px);
+      }
+
+      10% {
+        opacity: 1;
+        transform: scale(1.2) translateY(0);
+      }
+
+      80% {
+        opacity: 1;
+        transform: scale(1.0);
+      }
+
+      100% {
+        opacity: 0;
+        transform: scale(1.5);
+      }
+    }
+
+    @keyframes shine {
+      to {
+        background-position: 200% center;
+      }
+    }
+
+    #menu-screen {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.6);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: white;
+      z-index: 10;
+      pointer-events: auto;
+      backdrop-filter: blur(4px);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 40px;
+      text-shadow: 3px 3px 0 #5bc656;
+      color: #fff;
+      text-align: center;
+    }
+
+    .subtitle {
+      font-size: 24px;
+      color: #ffd700;
+      text-shadow: 2px 2px 0 #000;
+      margin-bottom: 10px;
+    }
+
+    p {
+      font-size: 16px;
+      margin: 10px 0 30px;
+      text-align: center;
+      line-height: 1.5;
+    }
+
+    button {
+      background: #ff9999;
+      border: 4px solid #fff;
+      color: white;
+      font-size: 20px;
+      padding: 15px 40px;
+      border-radius: 50px;
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: bold;
+      box-shadow: 0 4px 0 rgba(0, 0, 0, 0.2);
+      transition: transform 0.1s;
+    }
+
+    button:active {
+      transform: scale(0.95);
+      box-shadow: 0 2px 0 rgba(0, 0, 0, 0.2);
+    }
+
+    .hidden {
+      display: none !important;
+    }
+  </style>
+  <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+
+<body>
+
+  <div id="canvas-container"></div>
+
+  <div id="ui-layer">
+    <div id="header-ui">
+      <div id="score-display">高さ: 0m</div>
+      <div id="highscore-display">BEST: 0m</div>
+    </div>
+    <div id="message-area"></div>
+  </div>
+
+  <div id="menu-screen">
+    <h1>たねの<br>のびのびジャンプ</h1>
+    <div class="subtitle">DX</div>
+    <p>どこまでも高く！<br>ハイスコアを目指そう</p>
+    <button id="start-btn">スタート</button>
+  </div>
+
+  <script>
+    let scene, camera, renderer;
+    let taneGroup;
+    let platforms = [];
+    let particles = [];
+    let clouds = [];
+
+    let gameActive = false;
+    let score = 0;
+    let highScore = 0;
+    let highestY = 0;
+
+    let playerVelocityY = 0;
+    const GRAVITY = 0.012;
+    const JUMP_FORCE = 0.38;
+
+    let cameraTargetY = 2;
+    let targetX = 0;
+
+    // Milestones (Extended to 10000m!)
+    const milestones = [
+      { height: 30, msg: "いい調子！", shown: false },
+      { height: 100, msg: "すごい！", shown: false },
+      { height: 200, msg: "雲の上だ！", shown: false },
+      { height: 300, msg: "宇宙へ！", shown: false },
+      { height: 500, msg: "大気圏突破！", shown: false },
+      { height: 800, msg: "星になった！", shown: false },
+      { height: 1000, msg: "1000m到達！", shown: false },
+      { height: 1500, msg: "銀河の旅人", shown: false },
+      { height: 2000, msg: "どこまで行くの？", shown: false },
+      { height: 3000, msg: "前人未到！", shown: false },
+      { height: 4000, msg: "神の領域！", shown: false },
+      { height: 5000, msg: "✨真の伝説達成✨", shown: false },
+      { height: 6000, msg: "限界突破！！", shown: false },
+      { height: 8000, msg: "未知の次元へ...", shown: false },
+      { height: 10000, msg: "👑宇宙の覇者👑", shown: false, isLegend: true }
+    ];
+
+    const colors = {
+      body: 0xffffff,
+      cheek: 0xff9999,
+      sprout: 0x7bc656,
+      eye: 0x222222,
+      leaf: 0x81c784,
+      leafDark: 0x2e7d32,
+      skyStart: new THREE.Color(0x87CEEB),
+      skyEnd: new THREE.Color(0x050510) // Dark space
+    };
+
+    function init() {
+      const savedScore = localStorage.getItem('taneJumpHighScore');
+      if (savedScore) {
+        highScore = parseInt(savedScore);
+        document.getElementById('highscore-display').innerText = `BEST: ${highScore}m`;
+      }
+
+      const container = document.getElementById('canvas-container');
+
+      scene = new THREE.Scene();
+      scene.background = colors.skyStart.clone();
+      scene.fog = new THREE.Fog(colors.skyStart.clone(), 10, 40);
+
+      camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+      camera.position.set(0, 2, 12);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.SoftShadowMap;
+      container.appendChild(renderer.domElement);
+
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+      scene.add(ambientLight);
+
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+      dirLight.position.set(10, 20, 10);
+      dirLight.castShadow = true;
+      scene.add(dirLight);
+
+      createClouds();
+      createCharacter();
+      resetGame();
+
+      window.addEventListener('resize', onWindowResize, false);
+
+      const updateTargetX = (clientX) => {
+        const normX = (clientX / window.innerWidth) * 2 - 1;
+        targetX = normX * 5.5;
+      };
+
+      document.addEventListener('mousemove', e => {
+        if (gameActive) updateTargetX(e.clientX);
+      });
+      document.addEventListener('touchmove', e => {
+        if (gameActive) {
+          e.preventDefault();
+          updateTargetX(e.touches[0].clientX);
+        }
+      }, { passive: false });
+
+      document.getElementById('start-btn').addEventListener('click', startGame);
+
+      animate();
+    }
+
+    function createCapsuleMesh(radius, length, color) {
+      const group = new THREE.Group();
+      const material = new THREE.MeshLambertMaterial({ color: color });
+      const cylinder = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, length, 12), material);
+      cylinder.castShadow = true; group.add(cylinder);
+      const top = new THREE.Mesh(new THREE.SphereGeometry(radius, 12, 12), material);
+      top.position.y = length / 2; top.castShadow = true; group.add(top);
+      const bot = new THREE.Mesh(new THREE.SphereGeometry(radius, 12, 12), material);
+      bot.position.y = -length / 2; bot.castShadow = true; group.add(bot);
+      return group;
+    }
+
+    function createCharacter() {
+      taneGroup = new THREE.Group();
+      scene.add(taneGroup);
+
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.6, 24, 24), new THREE.MeshLambertMaterial({ color: colors.body }));
+      head.position.y = 0.4; head.castShadow = true; taneGroup.add(head);
+
+      const eyeGeo = new THREE.SphereGeometry(0.06, 8, 8);
+      const eyeMat = new THREE.MeshLambertMaterial({ color: colors.eye });
+      const lEye = new THREE.Mesh(eyeGeo, eyeMat); lEye.position.set(-0.2, 0.45, 0.5); head.add(lEye);
+      const rEye = new THREE.Mesh(eyeGeo, eyeMat); rEye.position.set(0.2, 0.45, 0.5); head.add(rEye);
+
+      const cheekGeo = new THREE.CircleGeometry(0.12, 16);
+      const cheekMat = new THREE.MeshBasicMaterial({ color: colors.cheek });
+      const lCheek = new THREE.Mesh(cheekGeo, cheekMat); lCheek.position.set(-0.35, 0.35, 0.45); lCheek.rotation.y = -0.5; head.add(lCheek);
+      const rCheek = new THREE.Mesh(cheekGeo, cheekMat); rCheek.position.set(0.35, 0.35, 0.45); rCheek.rotation.y = 0.5; head.add(rCheek);
+
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.2, 8), eyeMat);
+      stem.position.y = 1.0; taneGroup.add(stem);
+      const leafGeo = new THREE.SphereGeometry(0.1, 8, 8); leafGeo.scale(1, 0.3, 1);
+      const leafMat = new THREE.MeshLambertMaterial({ color: colors.sprout });
+      const lLeaf = new THREE.Mesh(leafGeo, leafMat); lLeaf.position.set(-0.08, 1.1, 0); lLeaf.rotation.z = 0.5; taneGroup.add(lLeaf);
+      const rLeaf = new THREE.Mesh(leafGeo, leafMat); rLeaf.position.set(0.08, 1.1, 0); rLeaf.rotation.z = -0.5; taneGroup.add(rLeaf);
+
+      const body = createCapsuleMesh(0.35, 0.3, colors.body);
+      body.position.y = -0.2; taneGroup.add(body);
+    }
+
+    function createClouds() {
+      for (let i = 0; i < 20; i++) {
+        const geo = new THREE.SphereGeometry(Math.random() * 2 + 1, 16, 16);
+        const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
+        const cloud = new THREE.Mesh(geo, mat);
+        cloud.position.set(
+          (Math.random() - 0.5) * 40,
+          (Math.random() - 0.5) * 40,
+          -15 - Math.random() * 10
+        );
+        scene.add(cloud);
+        clouds.push(cloud);
+      }
+    }
+
+    function createPlatform(x, y) {
+      const group = new THREE.Group();
+      const geo = new THREE.CylinderGeometry(1.2, 1.2, 0.2, 16);
+      const mat = new THREE.MeshLambertMaterial({ color: colors.leaf });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.receiveShadow = true;
+      group.add(mesh);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(1.2, 0.05, 8, 24), new THREE.MeshBasicMaterial({ color: colors.leafDark }));
+      ring.rotation.x = Math.PI / 2;
+      group.add(ring);
+
+      group.position.set(x, y, 0);
+      scene.add(group);
+      return { mesh: group, x: x, y: y };
+    }
+
+    function startGame() {
+      document.getElementById('menu-screen').classList.add('hidden');
+      resetGame();
+      gameActive = true;
+      playerVelocityY = JUMP_FORCE;
+    }
+
+    function resetGame() {
+      platforms.forEach(p => scene.remove(p.mesh));
+      platforms = [];
+
+      taneGroup.position.set(0, 0, 0);
+      taneGroup.rotation.set(0, 0, 0);
+      playerVelocityY = 0;
+      targetX = 0;
+      highestY = 0;
+      score = 0;
+      camera.position.y = 2;
+      cameraTargetY = 2;
+
+      milestones.forEach(m => m.shown = false);
+      document.getElementById('message-area').innerHTML = '';
+
+      platforms.push(createPlatform(0, -2));
+      for (let i = 0; i < 10; i++) generateNextPlatform();
+
+      updateScore();
+      updateBackground(0);
+    }
+
+    function generateNextPlatform() {
+      const lastY = platforms.length > 0 ? platforms[platforms.length - 1].y : -2;
+      const deltaY = 1.5 + Math.random() * 1.5;
+      let newX = (Math.random() - 0.5) * 7;
+      platforms.push(createPlatform(newX, lastY + deltaY));
+    }
+
+    function showMessage(text, isLegend = false) {
+      const container = document.getElementById('message-area');
+      const el = document.createElement('div');
+      el.className = isLegend ? 'legend-msg' : 'milestone-msg';
+      el.innerText = text;
+      container.appendChild(el);
+      setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, isLegend ? 4000 : 2500);
+    }
+
+    function gameOver() {
+      gameActive = false;
+
+      if (score > highScore) {
+        highScore = score;
+        localStorage.setItem('taneJumpHighScore', highScore);
+        document.getElementById('highscore-display').innerText = `BEST: ${highScore}m`;
+        showMessage("自己ベスト更新！");
+      }
+
+      const menu = document.getElementById('menu-screen');
+      menu.classList.remove('hidden');
+      menu.querySelector('h1').innerText = "ゲームオーバー";
+      menu.querySelector('.subtitle').innerText = "";
+      menu.querySelector('p').innerHTML = `記録: ${score}m<br>ベスト: ${highScore}m`;
+      menu.querySelector('button').innerText = "リトライ";
+    }
+
+    function spawnParticles(pos) {
+      for (let i = 0; i < 5; i++) {
+        const geo = new THREE.SphereGeometry(0.1, 4, 4);
+        const mat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.copy(pos);
+        mesh.position.y -= 0.5;
+        scene.add(mesh);
+        particles.push({
+          mesh: mesh,
+          vel: new THREE.Vector3((Math.random() - 0.5) * 0.2, Math.random() * 0.2, (Math.random() - 0.5) * 0.2),
+          life: 20
+        });
+      }
+    }
+
+    function updateScore() {
+      const currentHeight = Math.floor(Math.max(0, highestY));
+      if (currentHeight > score) {
+        score = currentHeight;
+        document.getElementById('score-display').innerText = `高さ: ${score}m`;
+
+        milestones.forEach(m => {
+          if (!m.shown && score >= m.height) {
+            showMessage(m.msg, m.isLegend);
+            m.shown = true;
+          }
+        });
+
+        updateBackground(score);
+      }
+    }
+
+    function updateBackground(height) {
+      // Extended to 1000m for visual gradient to deep space
+      const ratio = Math.min(height / 1000, 1);
+      const r = THREE.MathUtils.lerp(colors.skyStart.r, colors.skyEnd.r, ratio);
+      const g = THREE.MathUtils.lerp(colors.skyStart.g, colors.skyEnd.g, ratio);
+      const b = THREE.MathUtils.lerp(colors.skyStart.b, colors.skyEnd.b, ratio);
+
+      const newColor = new THREE.Color(r, g, b);
+      scene.background = newColor;
+      scene.fog.color = newColor;
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      if (gameActive) {
+        taneGroup.position.x += (targetX - taneGroup.position.x) * 0.1;
+        taneGroup.rotation.z = (taneGroup.position.x - targetX) * 0.2;
+        taneGroup.rotation.y = (targetX - taneGroup.position.x) * -0.5;
+
+        taneGroup.position.y += playerVelocityY;
+        playerVelocityY -= GRAVITY;
+
+        if (taneGroup.position.y > highestY) {
+          highestY = taneGroup.position.y;
+          updateScore();
+        }
+
+        if (playerVelocityY < 0) {
+          for (let p of platforms) {
+            if (Math.abs(p.x - taneGroup.position.x) < 1.3 &&
+              Math.abs(p.y - taneGroup.position.y) < 0.5) {
+
+              playerVelocityY = JUMP_FORCE;
+              spawnParticles(taneGroup.position);
+              taneGroup.scale.set(1.2, 0.8, 1.2);
+              break;
+            }
+          }
+        }
+
+        taneGroup.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
+
+        if (taneGroup.position.y > cameraTargetY - 1) {
+          cameraTargetY = taneGroup.position.y + 1;
+        }
+        camera.position.y += (cameraTargetY - camera.position.y) * 0.1;
+
+        clouds.forEach(c => {
+          if (c.position.y < camera.position.y - 20) {
+            c.position.y = camera.position.y + 20 + Math.random() * 10;
+            c.position.x = (Math.random() - 0.5) * 40;
+          }
+        });
+
+        if (platforms.length > 0 && platforms[0].y < camera.position.y - 10) {
+          scene.remove(platforms[0].mesh);
+          platforms.shift();
+          generateNextPlatform();
+        }
+
+        if (taneGroup.position.y < camera.position.y - 8) {
+          gameOver();
+        }
+
+        for (let i = particles.length - 1; i >= 0; i--) {
+          let p = particles[i];
+          p.mesh.position.add(p.vel);
+          p.life--;
+          p.mesh.scale.multiplyScalar(0.9);
+          if (p.life <= 0) {
+            scene.remove(p.mesh);
+            particles.splice(i, 1);
+          }
+        }
+      } else {
+        taneGroup.rotation.y += 0.02;
+        taneGroup.position.y = Math.sin(Date.now() * 0.003) * 0.5;
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    init();
+  </script>
+</body>
+
+</html>
