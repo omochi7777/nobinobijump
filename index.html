@@ -379,6 +379,15 @@
     const sharedGeometries = {};
     const sharedMaterials = {};
 
+    // ============ OBJECT POOLS (Prevent GC pressure from long play sessions) ============
+    const particlePool = [];      // Pool of reusable particle objects
+    const platformPool = [];      // Pool of reusable platform groups
+    const MAX_PARTICLES = 50;     // Maximum particles to keep in pool
+    const MAX_PLATFORMS = 20;     // Maximum platforms to keep in pool
+
+    // Reusable Vector3 for particle velocity (avoid creating new objects)
+    const tempVelocity = new THREE.Vector3();
+
     // Default scale vector for lerp (avoid creating new Vector3 each frame)
     const DEFAULT_SCALE = new THREE.Vector3(1, 1, 1);
 
@@ -498,6 +507,12 @@
       gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
 
+      // Cleanup after sound ends to prevent memory leak
+      osc.onended = () => {
+        osc.disconnect();
+        gain.disconnect();
+      };
+
       osc.start(audioCtx.currentTime);
       osc.stop(audioCtx.currentTime + 0.25);
     }
@@ -517,6 +532,12 @@
 
       gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+
+      // Cleanup after sound ends to prevent memory leak
+      osc.onended = () => {
+        osc.disconnect();
+        gain.disconnect();
+      };
 
       osc.start(audioCtx.currentTime);
       osc.stop(audioCtx.currentTime + 0.5);
@@ -540,6 +561,12 @@
         gain.gain.setValueAtTime(0, startTime);
         gain.gain.linearRampToValueAtTime(0.2, startTime + 0.05);
         gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.3);
+
+        // Cleanup after sound ends to prevent memory leak
+        osc.onended = () => {
+          osc.disconnect();
+          gain.disconnect();
+        };
 
         osc.start(startTime);
         osc.stop(startTime + 0.3);
@@ -720,18 +747,33 @@
     }
 
     function createPlatform(x, y) {
-      const group = new THREE.Group();
-      // Reuse shared geometry and material
-      const mesh = new THREE.Mesh(sharedGeometries.platform, sharedMaterials.platform);
-      mesh.receiveShadow = true;
-      group.add(mesh);
-      const ring = new THREE.Mesh(sharedGeometries.platformRing, sharedMaterials.platformRing);
-      ring.rotation.x = Math.PI / 2;
-      group.add(ring);
+      let group;
+
+      // Try to reuse from pool first
+      if (platformPool.length > 0) {
+        group = platformPool.pop();
+      } else {
+        // Create new platform only if pool is empty
+        group = new THREE.Group();
+        const mesh = new THREE.Mesh(sharedGeometries.platform, sharedMaterials.platform);
+        mesh.receiveShadow = true;
+        group.add(mesh);
+        const ring = new THREE.Mesh(sharedGeometries.platformRing, sharedMaterials.platformRing);
+        ring.rotation.x = Math.PI / 2;
+        group.add(ring);
+      }
 
       group.position.set(x, y, 0);
       scene.add(group);
       return { mesh: group, x: x, y: y };
+    }
+
+    // Return platform to pool for reuse
+    function recyclePlatform(platform) {
+      scene.remove(platform.mesh);
+      if (platformPool.length < MAX_PLATFORMS) {
+        platformPool.push(platform.mesh);
+      }
     }
 
     function startGame() {
@@ -811,6 +853,12 @@
       gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
 
+      // Cleanup after sound ends to prevent memory leak
+      osc.onended = () => {
+        osc.disconnect();
+        gain.disconnect();
+      };
+
       osc.start(audioCtx.currentTime);
       osc.stop(audioCtx.currentTime + 0.15);
     }
@@ -835,13 +883,25 @@
         gain.gain.linearRampToValueAtTime(0.15, startTime + 0.05);
         gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.4);
 
+        // Cleanup after sound ends to prevent memory leak
+        osc.onended = () => {
+          osc.disconnect();
+          gain.disconnect();
+        };
+
         osc.start(startTime);
         osc.stop(startTime + 0.4);
       });
     }
 
     function resetGame() {
-      platforms.forEach(p => scene.remove(p.mesh));
+      // Return all platforms to pool before clearing
+      platforms.forEach(p => {
+        scene.remove(p.mesh);
+        if (platformPool.length < MAX_PLATFORMS) {
+          platformPool.push(p.mesh);
+        }
+      });
       platforms = [];
 
       taneGroup.position.set(0, 0, 0);
@@ -908,17 +968,51 @@
 
     function spawnParticles(pos) {
       for (let i = 0; i < 5; i++) {
-        // Reuse shared geometry and material
-        const mesh = new THREE.Mesh(sharedGeometries.particle, sharedMaterials.particle);
-        mesh.position.copy(pos);
-        mesh.position.y -= 0.5;
-        mesh.scale.set(1, 1, 1); // Reset scale for reused concept
-        scene.add(mesh);
-        particles.push({
-          mesh: mesh,
-          vel: new THREE.Vector3((Math.random() - 0.5) * 0.2, Math.random() * 0.2, (Math.random() - 0.5) * 0.2),
-          life: 20
-        });
+        let particleObj;
+
+        // Try to reuse from pool first
+        if (particlePool.length > 0) {
+          particleObj = particlePool.pop();
+          particleObj.mesh.position.copy(pos);
+          particleObj.mesh.position.y -= 0.5;
+          particleObj.mesh.scale.set(1, 1, 1);
+          particleObj.mesh.visible = true;
+          // Reuse existing velocity vector
+          particleObj.vel.set(
+            (Math.random() - 0.5) * 0.2,
+            Math.random() * 0.2,
+            (Math.random() - 0.5) * 0.2
+          );
+          particleObj.life = 20;
+          scene.add(particleObj.mesh);
+        } else {
+          // Create new particle only if pool is empty
+          const mesh = new THREE.Mesh(sharedGeometries.particle, sharedMaterials.particle);
+          mesh.position.copy(pos);
+          mesh.position.y -= 0.5;
+          mesh.scale.set(1, 1, 1);
+          scene.add(mesh);
+          particleObj = {
+            mesh: mesh,
+            vel: new THREE.Vector3(
+              (Math.random() - 0.5) * 0.2,
+              Math.random() * 0.2,
+              (Math.random() - 0.5) * 0.2
+            ),
+            life: 20
+          };
+        }
+
+        particles.push(particleObj);
+      }
+    }
+
+    // Return particle to pool for reuse
+    function recycleParticle(particleObj) {
+      scene.remove(particleObj.mesh);
+      particleObj.mesh.visible = false;
+      if (particlePool.length < MAX_PARTICLES) {
+        particlePool.push(particleObj);
       }
     }
 
@@ -1011,8 +1105,8 @@
         });
 
         if (platforms.length > 0 && platforms[0].y < camera.position.y - 10) {
-          // Remove platform from scene (no dispose needed - using shared geometry/material)
-          scene.remove(platforms[0].mesh);
+          // Recycle platform back to pool for reuse
+          recyclePlatform(platforms[0]);
           platforms.shift();
           generateNextPlatform();
         }
@@ -1027,7 +1121,8 @@
           p.life--;
           p.mesh.scale.multiplyScalar(0.9);
           if (p.life <= 0) {
-            scene.remove(p.mesh);
+            // Recycle particle back to pool for reuse
+            recycleParticle(p);
             particles.splice(i, 1);
           }
         }
